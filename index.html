@@ -40,7 +40,11 @@
     .nativo{background:#dbeed0;color:#25551f}.exotico{background:#f2dccf;color:#703a20}
     .interpretacion{background:#f7fbf3;border-left:6px solid var(--acento);padding:14px;border-radius:12px;line-height:1.5;margin-top:14px}
     canvas{max-height:290px;margin-top:10px}.full{grid-column:1/-1}
-    footer{text-align:center;background:var(--verde-oscuro);color:white;padding:16px;margin-top:34px;font-size:.9rem}
+    footer{background:#f7faf7;border-top:1px solid #e2e9df;margin-top:34px;text-align:center;color:#5c665a;font-size:.9rem}
+    .footer-menu{padding:20px 12px 26px;background:#fbfdf9}
+    .home-btn{display:inline-block;background:#2e7d32;color:white;text-decoration:none;font-weight:800;border-radius:999px;padding:13px 28px;box-shadow:0 3px 8px rgba(46,125,50,.18)}
+    .home-btn:hover{filter:brightness(1.06);transform:translateY(-1px)}
+    .footer-credit{padding:18px 12px;background:#f3f8f2}
     @media(max-width:900px){main{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}
     @media(max-width:520px){.controls,.metrics,.diversidad-row{grid-template-columns:1fr}header h1{font-size:1.55rem}}
   </style>
@@ -89,7 +93,12 @@
   <section class="card"><h2>Frecuencia relativa por especie</h2><canvas id="chartFrecuencia"></canvas></section>
   <section class="card"><h2>Interpretación automática</h2><div class="interpretacion" id="interpretacion">El simulador está en su estado inicial: 0 días, 0 trampas-noche y 0 capturas. Ajuste los parámetros y presione <strong>Ejecutar monitoreo</strong>.</div></section>
 </main>
-<footer>Desarrollado por Jorge Leichtle © 2026 · Simulador educativo de monitoreo de fauna silvestre</footer>
+<footer>
+  <div class="footer-menu">
+    <a class="home-btn" href="https://jleichtle-prof.github.io/laboratorio-fauna-silvestre/">🏠 Menú principal</a>
+  </div>
+  <div class="footer-credit">Desarrollado por Jorge Leichtle © 2026</div>
+</footer>
 <script>
 const especies=[
   {nombre:'Yaca',origen:'Nativo',bosque:[0.5,0.7],rural:[0.1,0.2]},
