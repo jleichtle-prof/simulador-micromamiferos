@@ -101,6 +101,36 @@ const especies=[
   {nombre:'Guarén / rata noruega',origen:'Exótico',bosque:[0.0,0.0],rural:[0.5,0.7]}
 ];
 let diasCampana=0,chartRiqueza,chartCapturas,chartFrecuencia;
+const piePercentLabels={
+  id:'piePercentLabels',
+  afterDatasetsDraw(chart){
+    if(chart.config.type!=='pie')return;
+    const dataset=chart.data.datasets[0];
+    if(!dataset)return;
+    const data=dataset.data||[];
+    const total=data.reduce((a,b)=>a+Number(b||0),0);
+    if(total<=0)return;
+    const ctx=chart.ctx;
+    const meta=chart.getDatasetMeta(0);
+    ctx.save();
+    ctx.font='bold 13px Arial';
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    meta.data.forEach((arc,i)=>{
+      const value=Number(data[i]||0);
+      if(value<=0)return;
+      const pct=(value/total*100).toFixed(1)+'%';
+      const pos=arc.tooltipPosition();
+      ctx.lineWidth=4;
+      ctx.strokeStyle='rgba(255,255,255,.9)';
+      ctx.fillStyle='#1f2a1c';
+      ctx.strokeText(pct,pos.x,pos.y);
+      ctx.fillText(pct,pos.x,pos.y);
+    });
+    ctx.restore();
+  }
+};
+Chart.register(piePercentLabels);
 function randomEntre(min,max){return min+Math.random()*(max-min)}
 function randChoiceWeighted(items,weights){const total=weights.reduce((a,b)=>a+b,0);if(total<=0)return items[Math.floor(Math.random()*items.length)];let r=Math.random()*total;for(let i=0;i<items.length;i++){r-=weights[i];if(r<=0)return items[i]}return items[items.length-1]}
 function shannon(counts){const n=counts.reduce((a,b)=>a+b,0);if(n===0)return 0;return -counts.filter(c=>c>0).reduce((s,c)=>{const p=c/n;return s+p*Math.log(p)},0)}
@@ -113,17 +143,47 @@ function simular(habitat,ndias){
   const probabilidades=especies.map(e=>randomEntre(e[habitat][0],e[habitat][1]));
   const registros=Object.fromEntries(especies.map(e=>[e.nombre,{capturas:0,recapturas:0,marcados:0}]));
   const riquezaDia=[],nuevasDia=[],recaptDia=[],detectadas=new Set();
+ 
+  // Para que la curva de acumulación sea ecológicamente más didáctica,
+  // las especies no quedan todas disponibles desde el día 1. Cada simulación
+  // asigna una primera probabilidad de aparición según el ambiente y la
+  // detectabilidad relativa de cada especie. Las especies más probables tienden
+  // a aparecer antes y las menos probables aparecen después o pueden no aparecer.
+  const primerDiaDisponible=Array(especies.length).fill(Infinity);
+  if(ndias>0){
+    const orden=probabilidades
+      .map((p,i)=>({i,p,score:Math.random()/(p+0.02)}))
+      .filter(o=>o.p>0)
+      .sort((a,b)=>a.score-b.score);
+    const baseEsperada=habitat==='bosque'?5:4;
+    const especiesEsperadas=Math.max(1,Math.min(orden.length,Math.round(baseEsperada+randomEntre(-1,1.4))));
+    orden.slice(0,especiesEsperadas).forEach((o,k)=>{
+      const fraccion=especiesEsperadas===1?0:k/(especiesEsperadas-1);
+      const diaBase=1+Math.floor(fraccion*Math.max(0,ndias-1));
+      const jitter=k===0?0:Math.floor(randomEntre(-0.35,1.35));
+      primerDiaDisponible[o.i]=Math.max(1,Math.min(ndias,diaBase+jitter));
+    });
+    primerDiaDisponible[orden[0]?.i]=1;
+  }
+ 
   for(let d=1;d<=ndias;d++){
-    let lambda=habitat==='bosque'?6.2:6.8;if(d>7)lambda*=Math.max(0.45,1-(d-7)*0.025);
-    const capturasHoy=Math.min(25,Math.max(0,poisson(lambda)));let nuevas=0,recaps=0;
+    let lambda=habitat==='bosque'?6.2:6.8;
+    if(d>7)lambda*=Math.max(0.45,1-(d-7)*0.025);
+    const capturasHoy=Math.min(25,Math.max(0,poisson(lambda)));
+    let nuevas=0,recaps=0;
     for(let c=0;c<capturasHoy;c++){
-      const sp=randChoiceWeighted(especies,probabilidades),reg=registros[sp.nombre];
+      const pesosDia=probabilidades.map((p,i)=>d>=primerDiaDisponible[i]?p:0);
+      if(pesosDia.reduce((a,b)=>a+b,0)<=0)continue;
+      const sp=randChoiceWeighted(especies,pesosDia),reg=registros[sp.nombre];
       const baseRecap=reg.marcados>0?Math.min(0.08+d*0.025+reg.marcados*0.015,0.62):0;
       const probRecap=Math.max(0,Math.min(0.72,baseRecap+randomEntre(-0.04,0.06)));
-      reg.capturas++;detectadas.add(sp.nombre);
+      reg.capturas++;
+      detectadas.add(sp.nombre);
       if(Math.random()<probRecap){reg.recapturas++;recaps++}else{reg.marcados++;nuevas++}
     }
-    riquezaDia.push(detectadas.size);nuevasDia.push(nuevas);recaptDia.push(recaps);
+    riquezaDia.push(detectadas.size);
+    nuevasDia.push(nuevas);
+    recaptDia.push(recaps);
   }
   const counts=especies.map(e=>registros[e.nombre].capturas),total=counts.reduce((a,b)=>a+b,0),riqueza=counts.filter(c=>c>0).length;
   const recapturas=especies.reduce((s,e)=>s+registros[e.nombre].recapturas,0),marcados=especies.reduce((s,e)=>s+registros[e.nombre].marcados,0);
@@ -132,7 +192,7 @@ function simular(habitat,ndias){
 }
 function renderMetricas(m){document.getElementById('metricas').innerHTML=`<div class="metric"><strong>${m.esfuerzo}</strong><span>trampas-noche</span></div><div class="metric"><strong>${m.total}</strong><span>capturas totales</span></div><div class="metric"><strong>${m.recapturas}</strong><span>recapturas</span></div><div class="metric"><strong>${m.riqueza}</strong><span>riqueza observada</span></div><div class="metric"><strong>${m.exito.toFixed(1)}%</strong><span>éxito de captura</span></div><div class="metric"><strong>${m.densidad.toFixed(0)}</strong><span>ind./ha aprox.</span></div><div class="diversidad-row"><div class="metric"><strong>${m.H.toFixed(2)}</strong><span>Shannon H'</span></div><div class="metric"><strong>${m.D.toFixed(2)}</strong><span>Simpson D</span></div></div>`}
 function renderTabla(registros,total){const tbody=document.querySelector('#tablaResultados tbody');tbody.innerHTML='';especies.forEach(e=>{const r=registros[e.nombre],pct=total>0?(r.capturas/total*100).toFixed(1):'0.0';tbody.innerHTML+=`<tr><td>${e.nombre}</td><td><span class="tag ${e.origen==='Nativo'?'nativo':'exotico'}">${e.origen}</span></td><td>${r.capturas}</td><td>${r.recapturas}</td><td>${pct}%</td></tr>`})}
-function renderGraficos(riqueza,nuevas,recaps,counts){const labels=riqueza.map((_,i)=>'Día '+(i+1));if(chartRiqueza)chartRiqueza.destroy();if(chartCapturas)chartCapturas.destroy();if(chartFrecuencia)chartFrecuencia.destroy();chartRiqueza=new Chart(document.getElementById('chartRiqueza'),{type:'line',data:{labels,datasets:[{label:'Riqueza acumulada',data:riqueza,tension:.25}]},options:{responsive:true,plugins:{legend:{display:true}},scales:{y:{beginAtZero:true,precision:0}}}});chartCapturas=new Chart(document.getElementById('chartCapturas'),{type:'bar',data:{labels,datasets:[{label:'Capturas nuevas',data:nuevas},{label:'Recapturas',data:recaps}]},options:{responsive:true,plugins:{legend:{display:true}},scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true,precision:0}}}});chartFrecuencia=new Chart(document.getElementById('chartFrecuencia'),{type:'pie',data:{labels:especies.map(e=>e.nombre),datasets:[{label:'Frecuencia relativa',data:counts}]},options:{responsive:true,plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:function(ctx){const total=ctx.dataset.data.reduce((a,b)=>a+b,0);const pct=total>0?(ctx.raw/total*100).toFixed(1):'0.0';return `${ctx.label}: ${pct}%`}}}}}})}
+function renderGraficos(riqueza,nuevas,recaps,counts){const labels=riqueza.map((_,i)=>'Día '+(i+1));if(chartRiqueza)chartRiqueza.destroy();if(chartCapturas)chartCapturas.destroy();if(chartFrecuencia)chartFrecuencia.destroy();chartRiqueza=new Chart(document.getElementById('chartRiqueza'),{type:'line',data:{labels,datasets:[{label:'Riqueza acumulada',data:riqueza,tension:.25}]},options:{responsive:true,plugins:{legend:{display:true}},scales:{y:{beginAtZero:true,precision:0}}}});chartCapturas=new Chart(document.getElementById('chartCapturas'),{type:'bar',data:{labels,datasets:[{label:'Capturas nuevas',data:nuevas},{label:'Recapturas',data:recaps}]},options:{responsive:true,plugins:{legend:{display:true}},scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true,precision:0}}}});chartFrecuencia=new Chart(document.getElementById('chartFrecuencia'),{type:'pie',data:{labels:especies.map(e=>e.nombre),datasets:[{label:'Frecuencia relativa',data:counts}]},options:{responsive:true,layout:{padding:16},plugins:{legend:{position:'bottom'},piePercentLabels:{},tooltip:{callbacks:{label:function(ctx){const total=ctx.dataset.data.reduce((a,b)=>a+b,0);const pct=total>0?(ctx.raw/total*100).toFixed(1):'0.0';return `${ctx.label}: ${pct}%`}}}}}})}
 function renderInterpretacion(m){const ambiente=m.habitat==='bosque'?'bosque esclerófilo':'zona rural';if(m.ndias===0){document.getElementById('interpretacion').innerHTML=`<p>El simulador está en su estado inicial: <strong>0 días</strong>, <strong>0 trampas-noche</strong> y <strong>0 capturas</strong>.</p><p>Seleccione el ambiente, ajuste los días de campaña con los botones <strong>-</strong> y <strong>+</strong>, y luego presione <strong>Ejecutar monitoreo</strong>.</p>`;return}const optimo=m.ndias>=5&&m.ndias<=7?'El esfuerzo se encuentra dentro del rango recomendado para campañas estándar de líneas base.':(m.ndias<5?'El esfuerzo es menor al estándar usual de 5 días; la riqueza observada puede estar subestimada.':'El esfuerzo supera el estándar usual; es esperable observar más recapturas y una estabilización de la riqueza.');const estabilidad=m.riquezaDia.length>2&&m.riquezaDia[m.riquezaDia.length-1]===m.riquezaDia[Math.max(0,m.riquezaDia.length-3)]?'La curva de acumulación muestra señales de estabilización.':'La curva de acumulación aún puede seguir aumentando con mayor esfuerzo.';document.getElementById('interpretacion').innerHTML=`<p>La campaña simulada corresponde a <strong>${ambiente}</strong>, con <strong>${m.ndias} días</strong> y un esfuerzo de <strong>${m.esfuerzo} trampas-noche</strong>.</p><p>${optimo} ${estabilidad}</p><p>Se obtuvieron <strong>${m.total} capturas</strong>, de las cuales <strong>${m.recapturas}</strong> corresponden a recapturas. El éxito de captura fue de <strong>${m.exito.toFixed(1)}%</strong>. La riqueza observada fue de <strong>${m.riqueza}</strong> especies.</p><p>La frecuencia relativa muestra la proporción de capturas aportada por cada especie dentro del total registrado.</p><p>La estimación de densidad se presenta como valor educativo aproximado, porque una densidad robusta requiere modelos específicos de captura-recaptura y supuestos adicionales.</p>`}
 function reiniciar(){diasCampana=0;document.getElementById('diasOut').textContent='0';simular(document.getElementById('habitat').value,0)}
 function dibujarMapa(){const forest=document.getElementById('forest'),grid=document.getElementById('grid'),traps=document.getElementById('traps');const arboles=[[55,70,34],[670,95,28],[110,530,25],[610,520,31],[330,155,24],[225,315,27],[480,360,23],[85,415,30],[570,205,26],[385,510,22],[200,640,32],[520,635,28],[410,100,18],[140,230,21],[690,385,24],[305,610,20]];arboles.forEach(([x,y,s])=>{forest.innerHTML+=`<g filter="url(#shadow)"><circle cx="${x}" cy="${y}" r="${s}" fill="#3f7a34"/><circle cx="${x-s*.35}" cy="${y+4}" r="${s*.65}" fill="#4e8d3c"/><rect x="${x-4}" y="${y+s*.45}" width="8" height="18" fill="#7b4e2e"/></g>`});[[70,250],[145,120],[300,380],[455,160],[535,440],[640,300],[260,100],[390,275],[190,470],[485,595]].forEach(([x,y])=>{forest.innerHTML+=`<g><path d="M${x} ${y+24} C${x-20} ${y},${x+20} ${y},${x} ${y+24}" fill="#5f963f"/><path d="M${x} ${y+24} C${x-10} ${y+5},${x+25} ${y+10},${x+8} ${y+28}" fill="#78a94c"/></g>`});[[250,240],[520,300],[350,455]].forEach(([x,y])=>{forest.innerHTML+=`<ellipse cx="${x}" cy="${y}" rx="18" ry="12" fill="#8a927d" opacity=".9"/>`});const startX=140,startY=120,step=110;for(let i=0;i<5;i++){grid.innerHTML+=`<line x1="${startX}" y1="${startY+i*step}" x2="${startX+4*step}" y2="${startY+i*step}"/>`;grid.innerHTML+=`<line x1="${startX+i*step}" y1="${startY}" x2="${startX+i*step}" y2="${startY+4*step}"/>`}let n=1;for(let r=0;r<5;r++)for(let c=0;c<5;c++){const x=startX+c*step,y=startY+r*step;traps.innerHTML+=`<g filter="url(#shadow)"><rect x="${x-13}" y="${y-10}" width="26" height="20" fill="#d8d8d8" stroke="#111"/><polygon points="${x-13},${y-10} ${x},${y-18} ${x+13},${y-10}" fill="#eeeeee" stroke="#111"/><text x="${x-18}" y="${y-22}" font-size="17" font-weight="800" fill="#111">T${n}</text></g>`;n++}}
