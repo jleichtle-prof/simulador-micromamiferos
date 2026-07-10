@@ -209,8 +209,16 @@ function simular(habitat,ndias){
       const pesosDia=probabilidades.map((p,i)=>d>=primerDiaDisponible[i]?p:0);
       if(pesosDia.reduce((a,b)=>a+b,0)<=0)continue;
       const sp=randChoiceWeighted(especies,pesosDia),reg=registros[sp.nombre];
-      const baseRecap=reg.marcados>0?Math.min(0.08+d*0.025+reg.marcados*0.015,0.62):0;
-      const probRecap=Math.max(0,Math.min(0.72,baseRecap+randomEntre(-0.04,0.06)));
+      // No puede haber recapturas durante el primer día de campaña.
+      // Las recapturas solo se habilitan a partir del segundo día,
+      // cuando ya existen individuos marcados en jornadas anteriores.
+      const baseRecap=(d>1 && reg.marcados>0)
+        ? Math.min(0.08+d*0.025+reg.marcados*0.015,0.62)
+        : 0;
+
+      const probRecap=d>1
+        ? Math.max(0,Math.min(0.72,baseRecap+randomEntre(-0.04,0.06)))
+        : 0;
       reg.capturas++;
       detectadas.add(sp.nombre);
 
@@ -331,4 +339,3 @@ dibujarMapa();simular('bosque',0);
 </script>
 </body>
 </html>
-
