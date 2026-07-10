@@ -9,7 +9,7 @@
     :root{
       --verde-oscuro:#234d20; --verde:#4f7f3b; --verde-claro:#dcead2;
       --fondo:#f4f7f1; --texto:#263126; --borde:#c8d6c1;
-      --acento:#7da35c; --rojo:#e53935;
+      --acento:#7da35c; --rojo:#e53935; --morado:#8e24aa;
     }
     *{box-sizing:border-box}
     body{margin:0;font-family:Arial,Helvetica,sans-serif;background:linear-gradient(180deg,#f7faf4,#eef4e8);color:var(--texto)}
@@ -19,6 +19,11 @@
     .card{background:white;border:1px solid var(--borde);border-radius:16px;box-shadow:0 6px 18px rgba(34,77,32,.08);padding:18px}
     h2{color:var(--verde-oscuro);margin:0 0 12px;font-size:1.25rem}
     .map-wrap{position:relative;overflow:hidden;border-radius:14px;border:1px solid var(--borde);background:#8cae6c}
+    .map-legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;align-items:center;margin-top:12px;padding:10px 12px;background:#f8fbf5;border:1px solid var(--borde);border-radius:12px;font-size:.88rem;font-weight:700}
+    .legend-item{display:flex;align-items:center;gap:7px}
+    .legend-color{width:18px;height:18px;border-radius:4px;border:1px solid #333;display:inline-block}
+    .legend-empty{background:#d8d8d8}.legend-capture{background:#e53935}.legend-recapture{background:#8e24aa}
+    .map-note{text-align:center;margin-top:7px;font-size:.8rem;color:#53624f}
     svg{display:block;width:100%;height:auto}
     .controls{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px;align-items:end}
     label{font-weight:700;color:var(--verde-oscuro);display:block;margin-bottom:6px}
@@ -76,6 +81,12 @@
         <text x="28" y="690" font-size="14" fill="#24421f" font-weight="700">Cada separación entre trampas representa 5 m</text>
       </svg>
     </div>
+    <div class="map-legend" aria-label="Leyenda de estados de las trampas">
+      <span class="legend-item"><span class="legend-color legend-empty"></span>Sin captura</span>
+      <span class="legend-item"><span class="legend-color legend-capture"></span>Captura nueva</span>
+      <span class="legend-item"><span class="legend-color legend-recapture"></span>Recaptura</span>
+    </div>
+    <div class="map-note">Si una trampa registra capturas nuevas y recapturas, se muestra en morado. Bajo cada trampa se indican C = capturas nuevas y R = recapturas.</div>
   </section>
   <section class="card">
     <h2>Controles del simulador</h2>
@@ -151,6 +162,9 @@ function simular(habitat,ndias){
   const esfuerzo=25*ndias, areaHa=0.04;
   const probabilidades=especies.map(e=>randomEntre(e[habitat][0],e[habitat][1]));
   const registros=Object.fromEntries(especies.map(e=>[e.nombre,{capturas:0,recapturas:0,marcados:0}]));
+  // Cada posición representa una de las 25 trampas de la grilla.
+  // capturas = individuos nuevos; recapturas = individuos ya marcados.
+  const estadoTrampas=Array.from({length:25},()=>({capturas:0,recapturas:0}));
   const riquezaDia=[],nuevasDia=[],recaptDia=[],detectadas=new Set();
  
   // Para que la curva de acumulación sea ecológicamente más didáctica,
@@ -188,7 +202,20 @@ function simular(habitat,ndias){
       const probRecap=Math.max(0,Math.min(0.72,baseRecap+randomEntre(-0.04,0.06)));
       reg.capturas++;
       detectadas.add(sp.nombre);
-      if(Math.random()<probRecap){reg.recapturas++;recaps++}else{reg.marcados++;nuevas++}
+
+      // Asignar el evento a una de las 25 trampas.
+      const indiceTrampa=Math.floor(Math.random()*25);
+
+      if(Math.random()<probRecap){
+        reg.recapturas++;
+        recaps++;
+        estadoTrampas[indiceTrampa].recapturas++;
+      }
+      else{
+        reg.marcados++;
+        nuevas++;
+        estadoTrampas[indiceTrampa].capturas++;
+      }
     }
     riquezaDia.push(detectadas.size);
     nuevasDia.push(nuevas);
@@ -197,15 +224,82 @@ function simular(habitat,ndias){
   const counts=especies.map(e=>registros[e.nombre].capturas),total=counts.reduce((a,b)=>a+b,0),riqueza=counts.filter(c=>c>0).length;
   const recapturas=especies.reduce((s,e)=>s+registros[e.nombre].recapturas,0),marcados=especies.reduce((s,e)=>s+registros[e.nombre].marcados,0);
   const exito=esfuerzo>0?(total/esfuerzo)*100:0,densidad=marcados>0?marcados/areaHa:0,H=shannon(counts),D=simpsonD(counts);
-  renderMetricas({esfuerzo,total,recapturas,riqueza,exito,densidad,H,D});renderTabla(registros,total);renderGraficos(riquezaDia,nuevasDia,recaptDia,counts);renderInterpretacion({habitat,ndias,esfuerzo,total,recapturas,riqueza,exito,densidad,H,D,riquezaDia});
+  renderMetricas({esfuerzo,total,recapturas,riqueza,exito,densidad,H,D});
+  renderTabla(registros,total);
+  renderGraficos(riquezaDia,nuevasDia,recaptDia,counts);
+  renderInterpretacion({habitat,ndias,esfuerzo,total,recapturas,riqueza,exito,densidad,H,D,riquezaDia});
+  actualizarMapaTrampas(estadoTrampas);
 }
 function renderMetricas(m){document.getElementById('metricas').innerHTML=`<div class="metric"><strong>${m.esfuerzo}</strong><span>trampas-noche</span></div><div class="metric"><strong>${m.total}</strong><span>capturas totales</span></div><div class="metric"><strong>${m.recapturas}</strong><span>recapturas</span></div><div class="metric"><strong>${m.riqueza}</strong><span>riqueza observada</span></div><div class="metric"><strong>${m.exito.toFixed(1)}%</strong><span>éxito de captura</span></div><div class="metric"><strong>${m.densidad.toFixed(0)}</strong><span>ind./ha aprox.</span></div><div class="diversidad-row"><div class="metric"><strong>${m.H.toFixed(2)}</strong><span>Shannon H'</span></div><div class="metric"><strong>${m.D.toFixed(2)}</strong><span>Simpson D</span></div></div>`}
 function renderTabla(registros,total){const tbody=document.querySelector('#tablaResultados tbody');tbody.innerHTML='';especies.forEach(e=>{const r=registros[e.nombre],pct=total>0?(r.capturas/total*100).toFixed(1):'0.0';tbody.innerHTML+=`<tr><td>${e.nombre}</td><td><span class="tag ${e.origen==='Nativo'?'nativo':'exotico'}">${e.origen}</span></td><td>${r.capturas}</td><td>${r.recapturas}</td><td>${pct}%</td></tr>`})}
 function renderGraficos(riqueza,nuevas,recaps,counts){const labels=riqueza.map((_,i)=>'Día '+(i+1));if(chartRiqueza)chartRiqueza.destroy();if(chartCapturas)chartCapturas.destroy();if(chartFrecuencia)chartFrecuencia.destroy();chartRiqueza=new Chart(document.getElementById('chartRiqueza'),{type:'line',data:{labels,datasets:[{label:'Riqueza acumulada',data:riqueza,tension:.25}]},options:{responsive:true,plugins:{legend:{display:true}},scales:{y:{beginAtZero:true,precision:0}}}});chartCapturas=new Chart(document.getElementById('chartCapturas'),{type:'bar',data:{labels,datasets:[{label:'Capturas nuevas',data:nuevas},{label:'Recapturas',data:recaps}]},options:{responsive:true,plugins:{legend:{display:true}},scales:{x:{stacked:true},y:{stacked:true,beginAtZero:true,precision:0}}}});chartFrecuencia=new Chart(document.getElementById('chartFrecuencia'),{type:'pie',data:{labels:especies.map(e=>e.nombre),datasets:[{label:'Frecuencia relativa',data:counts}]},options:{responsive:true,layout:{padding:16},plugins:{legend:{position:'bottom'},piePercentLabels:{},tooltip:{callbacks:{label:function(ctx){const total=ctx.dataset.data.reduce((a,b)=>a+b,0);const pct=total>0?(ctx.raw/total*100).toFixed(1):'0.0';return `${ctx.label}: ${pct}%`}}}}}})}
 function renderInterpretacion(m){const ambiente=m.habitat==='bosque'?'bosque esclerófilo':'zona rural';if(m.ndias===0){document.getElementById('interpretacion').innerHTML=`<p>El simulador está en su estado inicial: <strong>0 días</strong>, <strong>0 trampas-noche</strong> y <strong>0 capturas</strong>.</p><p>Seleccione el ambiente, ajuste los días de campaña con los botones <strong>-</strong> y <strong>+</strong>, y luego presione <strong>Ejecutar monitoreo</strong>.</p>`;return}const optimo=m.ndias>=5&&m.ndias<=7?'El esfuerzo se encuentra dentro del rango recomendado para campañas estándar de líneas base.':(m.ndias<5?'El esfuerzo es menor al estándar usual de 5 días; la riqueza observada puede estar subestimada.':'El esfuerzo supera el estándar usual; es esperable observar más recapturas y una estabilización de la riqueza.');const estabilidad=m.riquezaDia.length>2&&m.riquezaDia[m.riquezaDia.length-1]===m.riquezaDia[Math.max(0,m.riquezaDia.length-3)]?'La curva de acumulación muestra señales de estabilización.':'La curva de acumulación aún puede seguir aumentando con mayor esfuerzo.';document.getElementById('interpretacion').innerHTML=`<p>La campaña simulada corresponde a <strong>${ambiente}</strong>, con <strong>${m.ndias} días</strong> y un esfuerzo de <strong>${m.esfuerzo} trampas-noche</strong>.</p><p>${optimo} ${estabilidad}</p><p>Se obtuvieron <strong>${m.total} capturas</strong>, de las cuales <strong>${m.recapturas}</strong> corresponden a recapturas. El éxito de captura fue de <strong>${m.exito.toFixed(1)}%</strong>. La riqueza observada fue de <strong>${m.riqueza}</strong> especies.</p><p>La frecuencia relativa muestra la proporción de capturas aportada por cada especie dentro del total registrado.</p><p>La estimación de densidad se presenta como valor educativo aproximado, porque una densidad robusta requiere modelos específicos de captura-recaptura y supuestos adicionales.</p>`}
 function reiniciar(){diasCampana=0;document.getElementById('diasOut').textContent='0';simular(document.getElementById('habitat').value,0)}
-function dibujarMapa(){const forest=document.getElementById('forest'),grid=document.getElementById('grid'),traps=document.getElementById('traps');const arboles=[[55,70,34],[670,95,28],[110,530,25],[610,520,31],[330,155,24],[225,315,27],[480,360,23],[85,415,30],[570,205,26],[385,510,22],[200,640,32],[520,635,28],[410,100,18],[140,230,21],[690,385,24],[305,610,20]];arboles.forEach(([x,y,s])=>{forest.innerHTML+=`<g filter="url(#shadow)"><circle cx="${x}" cy="${y}" r="${s}" fill="#3f7a34"/><circle cx="${x-s*.35}" cy="${y+4}" r="${s*.65}" fill="#4e8d3c"/><rect x="${x-4}" y="${y+s*.45}" width="8" height="18" fill="#7b4e2e"/></g>`});[[70,250],[145,120],[300,380],[455,160],[535,440],[640,300],[260,100],[390,275],[190,470],[485,595]].forEach(([x,y])=>{forest.innerHTML+=`<g><path d="M${x} ${y+24} C${x-20} ${y},${x+20} ${y},${x} ${y+24}" fill="#5f963f"/><path d="M${x} ${y+24} C${x-10} ${y+5},${x+25} ${y+10},${x+8} ${y+28}" fill="#78a94c"/></g>`});[[250,240],[520,300],[350,455]].forEach(([x,y])=>{forest.innerHTML+=`<ellipse cx="${x}" cy="${y}" rx="18" ry="12" fill="#8a927d" opacity=".9"/>`});const startX=140,startY=120,step=110;for(let i=0;i<5;i++){grid.innerHTML+=`<line x1="${startX}" y1="${startY+i*step}" x2="${startX+4*step}" y2="${startY+i*step}"/>`;grid.innerHTML+=`<line x1="${startX+i*step}" y1="${startY}" x2="${startX+i*step}" y2="${startY+4*step}"/>`}let n=1;for(let r=0;r<5;r++)for(let c=0;c<5;c++){const x=startX+c*step,y=startY+r*step;traps.innerHTML+=`<g filter="url(#shadow)"><rect x="${x-13}" y="${y-10}" width="26" height="20" fill="#d8d8d8" stroke="#111"/><polygon points="${x-13},${y-10} ${x},${y-18} ${x+13},${y-10}" fill="#eeeeee" stroke="#111"/><text x="${x-18}" y="${y-22}" font-size="17" font-weight="800" fill="#111">T${n}</text></g>`;n++}}
+function actualizarMapaTrampas(estadoTrampas){
+  estadoTrampas.forEach((estado,i)=>{
+    const numero=i+1;
+    const rect=document.getElementById(`trapRect${numero}`);
+    const techo=document.getElementById(`trapRoof${numero}`);
+    const conteo=document.getElementById(`trapCount${numero}`);
+    if(!rect||!techo||!conteo)return;
+
+    let colorCuerpo='#d8d8d8';
+    let colorTecho='#eeeeee';
+
+    // El morado tiene prioridad cuando la trampa presenta al menos una recaptura.
+    if(estado.recapturas>0){
+      colorCuerpo='#8e24aa';
+      colorTecho='#ba68c8';
+    }
+    else if(estado.capturas>0){
+      colorCuerpo='#e53935';
+      colorTecho='#ef6c68';
+    }
+
+    rect.setAttribute('fill',colorCuerpo);
+    techo.setAttribute('fill',colorTecho);
+
+    if(estado.capturas>0||estado.recapturas>0){
+      conteo.textContent=`C:${estado.capturas} R:${estado.recapturas}`;
+      conteo.setAttribute('visibility','visible');
+    }
+    else{
+      conteo.textContent='';
+      conteo.setAttribute('visibility','hidden');
+    }
+  });
+}
+
+function dibujarMapa(){
+  const forest=document.getElementById('forest'),grid=document.getElementById('grid'),traps=document.getElementById('traps');
+  const arboles=[[55,70,34],[670,95,28],[110,530,25],[610,520,31],[330,155,24],[225,315,27],[480,360,23],[85,415,30],[570,205,26],[385,510,22],[200,640,32],[520,635,28],[410,100,18],[140,230,21],[690,385,24],[305,610,20]];
+  arboles.forEach(([x,y,s])=>{forest.innerHTML+=`<g filter="url(#shadow)"><circle cx="${x}" cy="${y}" r="${s}" fill="#3f7a34"/><circle cx="${x-s*.35}" cy="${y+4}" r="${s*.65}" fill="#4e8d3c"/><rect x="${x-4}" y="${y+s*.45}" width="8" height="18" fill="#7b4e2e"/></g>`});
+  [[70,250],[145,120],[300,380],[455,160],[535,440],[640,300],[260,100],[390,275],[190,470],[485,595]].forEach(([x,y])=>{forest.innerHTML+=`<g><path d="M${x} ${y+24} C${x-20} ${y},${x+20} ${y},${x} ${y+24}" fill="#5f963f"/><path d="M${x} ${y+24} C${x-10} ${y+5},${x+25} ${y+10},${x+8} ${y+28}" fill="#78a94c"/></g>`});
+  [[250,240],[520,300],[350,455]].forEach(([x,y])=>{forest.innerHTML+=`<ellipse cx="${x}" cy="${y}" rx="18" ry="12" fill="#8a927d" opacity=".9"/>`});
+
+  const startX=140,startY=120,step=110;
+  for(let i=0;i<5;i++){
+    grid.innerHTML+=`<line x1="${startX}" y1="${startY+i*step}" x2="${startX+4*step}" y2="${startY+i*step}"/>`;
+    grid.innerHTML+=`<line x1="${startX+i*step}" y1="${startY}" x2="${startX+i*step}" y2="${startY+4*step}"/>`;
+  }
+
+  let n=1;
+  for(let r=0;r<5;r++){
+    for(let c=0;c<5;c++){
+      const x=startX+c*step,y=startY+r*step;
+      traps.innerHTML+=`
+        <g id="trapGroup${n}" filter="url(#shadow)">
+          <rect id="trapRect${n}" x="${x-13}" y="${y-10}" width="26" height="20" fill="#d8d8d8" stroke="#111"/>
+          <polygon id="trapRoof${n}" points="${x-13},${y-10} ${x},${y-18} ${x+13},${y-10}" fill="#eeeeee" stroke="#111"/>
+          <text x="${x-18}" y="${y-22}" font-size="17" font-weight="800" fill="#111">T${n}</text>
+          <text id="trapCount${n}" x="${x}" y="${y+27}" text-anchor="middle" font-size="12" font-weight="800" fill="#111" stroke="#fff" stroke-width="3" paint-order="stroke" visibility="hidden"></text>
+        </g>`;
+      n++;
+    }
+  }
+}
 dibujarMapa();simular('bosque',0);
 </script>
 </body>
 </html>
+
